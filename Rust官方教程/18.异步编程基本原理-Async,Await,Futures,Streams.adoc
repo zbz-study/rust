@@ -1,0 +1,87 @@
+= 异步编程基本原理-Async,Await,Futures,Streams
+:scripts: cjk
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+:numbered:
+:sectnums:
+:sectnum-depth: 3
+:source-highlighter: coderay
+
+== 前言
+
+* 本章在上一章使用线程实现并行和并发的基础上，介绍异步编程的另一种方法：Rust的Future、Stream、支持它们的 `async` 和 `await` 语法，以及管理和协调异步操作的工具
+* 并行(`Parallelism`)与并发(`Concurrency`)
+** 并行工作流
++
+image::img/15-01.png[]
+** 并发工作流
++
+image::img/15-02.png[]
+** 并行与并发工作流
++
+image::img/15-03.png[]
+
+== Futures 与 Async 语法
+
+=== Future
+
+* 一个 `future` 是一个值，当前可能没有准备好，而在将来的某一时刻才准备好
+* 其它语言也有相同概念，但可能使用其它名称，如 `task` 或 `promise`
+* Rust提供了 `Future` trait 作为构建基础，使得不同的异步操作可以被不同的数据结构使用共同接口来实现
+* `futures` 就是实现了 `Future` trait 的类型
+* 每个 `future` 掌控它自己被制造的进度信息和 ready 的定义
+
+=== Async
+
+* `async` 关键字可应用于代码块和函数，表示其可以被中断和恢复
+* 在异步代码块或函数中，可以用 `await` 关键字来等待一个 future(等待变成ready)
+* 在异步代码块或函数中，你等待future的任意点都是可能暂停或恢复的地方
+* 检查future是否有效的过程也叫轮询
+
+=== 代码编译转换说明
+
+* 当 Rust 遇到一个 async 关键字标记的代码块时，会将其编译为一个实现了 Future trait 的唯一的、匿名的数据类型
+* 当 Rust 遇到一个被标记为 async 的函数时，会将其编译成一个函数体是异步代码块的非异步函数
+* 异步函数的返回值类型是编译器为异步代码块所创建的匿名数据类型
+
+[source,rust]
+----
+use trpl::Html;
+
+async fn page_title(url: &str) -> Option<String> {
+    let response = trpl::get(url).await;
+    let response_text = response.text().await;
+    Html::parse(&response_text)
+        .select_first("title")
+        .map(|title_element| title_element.inner_html())
+}
+----
+
+编译器转换后的代码如下：
+
+[source,rust]
+----
+use std::future::Future;
+use trpl::Html;
+
+fn page_title(url: &str) -> impl Future<Output = Option<String>> {
+    async move {
+        let text = trpl::get(url).await.text().await;
+        Html::parse(&text)
+            .select_first("title")
+            .map(|title| title.inner_html())
+    }
+}
+----
+
+* 它返回的 trait 是一个 `Future`，它有一个关联类型 `Output`。注意 `Output` 的类型是 `Option<String>`，这与 async fn 版本的 page_title 的原始返回值类型相同
+* 所有原始函数中被调用的代码被封装进一个 `async move` 块，这个异步代码块产生一个 `Option<String>` 类型的值，这个值与返回类型中的 Output 类型一致
+* 如何使用 `url` 参数决定了转换后的函数体用 `async` 还是 `async move`
+
+== 线程与 future 的区别
+
+* 异步代码块会编译为匿名 future
+* 对于线程来说，操作系统会决定该检查哪个线程和会让它运行多长时间
+* 对于 future 来说，运行时决定检查哪一个任务，无需为任何操作保证公平性，经常提供不同的 API 来让你选择是否需要公平性
+* 实际上，异步运行时可能在底层使用系统线程使得细节更复杂，因此在运行时保证公平性要做更多的工作

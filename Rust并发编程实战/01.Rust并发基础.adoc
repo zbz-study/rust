@@ -1,0 +1,59 @@
+= Rust并发基础
+:scripts: cjk
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+:numbered:
+:sectnums:
+:sectnum-depth: 3
+:source-highlighter: coderay
+
+== Rust中的线程
+
+* 线程ID
+** Rust标准库为每个线程分配一个唯一的标识符，可以通过 `Thread::id()` 来获取，类型为 `ThreadId`
+** 除了复制与比较，不能对其做其他操作
+** 只能保证每个线程的ID是唯一的，不能保证是连续的
+* 输出锁
+** println宏使用 `std::io::Stdout::lock()` 来确保其输出不会被中断
+** `println!()` 表达式将等待任何并发运行的表达式完成后再输出
+* `move` 闭包
++
+[source,rust]
+----
+fn main() {
+    let number = vec![1, 2, 3];
+    thread::spawn(move || {
+        for n in number {
+            println!("{n}");
+        }
+    }).join().unwrap();
+}
+----
+** 使用 `move` 将numbers的所有权转移到新线程中
+** 如果不使用 `move`，闭包将会通过引用来获取numbers，导致编译器报错，因为新线程可能会比变量存在的时间更长
+* spawn方法的参数的生命周期
+** 由于线程可能会一直运行，因此参数有一个 ``static` 生命周期的约束，即只接受可能永久保存的函数
+** 通过引用捕获局部变量的闭包可能不能永久保存，因为一旦局部变量不存在，引用就变得无效，因此不能作为参数传递给spawn方法
+* 线程的返回值
++
+[source,rust]
+----
+fn main() {
+    let numbers = Vec::from_iter(0..=1000);
+    let t = thread::spawn(move || {
+        let len = numbers.len();
+        let sum = numbers.into_iter().sum::<usize>();
+        sum / len
+    });
+    let average = t.join().upwrap();
+    println!("average: {average}");
+}
+----
+** 闭包返回值通过 `join()` 发送回主线程
+** 若 `numbers` 为空，线程在除0时会发生 panic，而 join 会将返回该 panic 的消息，导致主线程 unwrap 时也发生 panic
+* 线程构造器
+** `std::thread::spawn` 实际上是 `std::thread::Builder::new().spawn().unwrap()` 的便捷写法
+** `std::thread::Builder` 允许在生成线程之前设置一些参数，如新线程的堆栈大小、名称等
+** 线程的名称可以通过 `std::thread::current().name()` 获取
+** spawn函数返回一个 `std::io::Result`，如何操作系统内存不足或程序受到资源限制，会无法生成新线程而直接发生 panic

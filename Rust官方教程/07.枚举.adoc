@@ -1,0 +1,106 @@
+= 枚举
+:scripts: cjk
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+:numbered:
+:sectnums:
+:sectnum-depth: 3
+:source-highlighter: coderay
+
+== 定义枚举(Enum)
+
+[source,rust]
+----
+enum IpAddrKind {
+    V4,
+    V6,
+}
+----
+
+== 创建枚举实例
+
+[source,rust]
+----
+fn main() {
+    let four = IpAddrKind::V4;
+    let six = IpAddrKind::V6;
+}
+----
+
+== 枚举值和数据关联
+
+* 枚举变体的名称也可以成为一个函数，用于构造该枚举的实例
++
+[source,rust]
+----
+enum IpAddr {
+    V4(String),
+    V6(String),
+}
+
+fn main() {
+    let home = IpAddr::V4(String::from("127.0.0.1"));
+    let loopback = IpAddr::V6(String::from("::1"));
+}
+----
+
+* 可以在枚举变体中放入任何类型的数据，例如字符串、数值类型或结构体，甚至是另一个枚举，下面是标准库中定义的IpAddr
++
+[source,rust]
+----
+struct Ipv4Addr {
+    // --snip--
+}
+
+struct Ipv6Addr {
+    // --snip--
+}
+
+enum IpAddr {
+    V4(Ipv4Addr),
+    V6(Ipv6Addr),
+}
+----
+
+== 方法
+
+[source,rust]
+----
+impl Message {
+    fn call(&self) {
+        // method body would be defined here
+    }
+}
+
+fn main() {
+    let m = Message::Write(String::from("hello"));
+    m.call();
+}
+----
+
+== Option枚举
+
+* `Option` 是标准库定义的枚举类型
+* 一个值可能是某个值，也可能什么都不是
+* `Option` 被包含在预导入模块中，无需显式引入，在标准库中定义如下:
++
+[source,rust]
+----
+enum Option<T> {
+    None,
+    Some(T),
+}
+----
+* 使用 `Option<T>`
++
+[source,rust]
+----
+fn main() {
+    let some_number = Some(5);
+    let some_char = Some('e');
+
+    let absent_number: Option<i32> = None;
+}
+----
+

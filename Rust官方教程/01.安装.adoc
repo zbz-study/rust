@@ -1,0 +1,57 @@
+= 安装
+:scripts: cjk
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+:numbered:
+:sectnums:
+:sectnum-depth: 3
+:source-highlighter: coderay
+
+== 通过rustup安装
+[source,shell]
+----
+curl --proto '=https' --tlsv1.2 https://sh.rustup.rs -sSf | sh
+----
+
+* 如果安装成功，将会出现如下内容
+[source,text]
+----
+Rust is installed now. Great!
+----
+
+== 获得 C 语言编译器
+* MacOS
+[source,shell]
+----
+xcode-select --install
+----
+* Linux
++
+根据发行版（distribution）文档安装 GCC 或 Clang。比如，如果你使用 Ubuntu，可以安装 build-essential 包。
+
+== 检查版本
+[source,shell]
+----
+rustc --version
+----
+
+== 更新与卸载
+* 更新
++
+[source,shell]
+----
+rustup update
+----
+* 卸载
++
+[source,shell]
+----
+rustup self uninstall
+----
+
+== 本地文档
+[source,shell]
+----
+rustup doc
+----

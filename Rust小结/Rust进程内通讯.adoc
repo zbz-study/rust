@@ -1,0 +1,402 @@
+= Rust进程内通讯
+:scripts: cjk
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+:numbered:
+:sectnums:
+:sectnum-depth: 3
+:source-highlighter: highlightjs
+
+== 概述
+
+Rust提供了多种进程内通讯方式，用于在不同线程之间安全地传递数据和共享状态。这些机制遵循Rust的所有权和借用规则，确保并发安全。
+
+== 进程内通讯方式概览
+
+以下是Rust中常用的进程内通讯方式及其特点：
+
+| 通讯方式 | 特点 | 适用场景 |
+|---------|------|---------|
+| **mpsc通道** | 多生产者单消费者，异步发送，无背压 | 事件驱动、日志收集、任务分发 |
+| **同步通道** | 多生产者单消费者，带有限缓冲区，有背压 | 流量控制、生产者速度限制 |
+| **Arc + Mutex** | 共享可变状态，互斥访问 | 需要共享状态的场景 |
+| **Arc + RwLock** | 读写锁，允许多读单写 | 读多写少的场景 |
+| **Condvar** | 条件变量，用于线程间通知 | 等待特定条件满足 |
+| **Barrier** | 屏障同步，等待所有线程到达 | 并行计算同步点 |
+| **Crossbeam通道** | 多生产者多消费者（第三方） | 需要多对多通讯场景 |
+
+== mpsc通道
+
+`mpsc`（multiple producer, single consumer）是标准库提供的异步通道，允许多个线程发送消息，单个线程接收消息。
+
+=== 特点
+
+- **多生产者**：发送者可克隆，支持多个线程发送
+- **单消费者**：接收者唯一，保证消息顺序
+- **异步发送**：发送不会阻塞（除非内部队列满）
+- **所有权转移**：消息通过所有权转移传递，避免数据竞争
+
+=== 应用场景
+
+- 事件日志收集
+- 任务分发系统
+- 异步消息处理
+- 线程间数据传递
+
+=== 基本用法
+
+[source,rust]
+----
+use std::sync::mpsc;
+use std::thread;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let val = String::from("hello");
+        tx.send(val).unwrap();
+    });
+
+    let received = rx.recv().unwrap();
+    println!("收到: {}", received);
+}
+----
+
+=== 多生产者示例
+
+[source,rust]
+----
+use std::sync::mpsc;
+use std::thread;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+    let tx1 = tx.clone();
+    let tx2 = tx.clone();
+
+    thread::spawn(move || {
+        tx1.send("线程1消息").unwrap();
+    });
+
+    thread::spawn(move || {
+        tx2.send("线程2消息").unwrap();
+    });
+
+    for msg in rx {
+        println!("收到: {}", msg);
+    }
+}
+----
+
+== 同步通道
+
+同步通道（`sync_channel`）在发送者发送消息时会阻塞，直到接收者准备好接收或缓冲区有空间。
+
+=== 特点
+
+- **背压机制**：发送者会被阻塞直到消息被消费
+- **有限缓冲区**：可指定缓冲区大小
+- **流量控制**：防止生产者过快生产
+
+=== 应用场景
+
+- 生产者速度需要控制的场景
+- 实时数据处理
+- 需要协调生产和消费速率
+
+=== 基本用法
+
+[source,rust]
+----
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
+
+fn main() {
+    // 创建容量为1的同步通道
+    let (tx, rx) = mpsc::sync_channel(1);
+
+    thread::spawn(move || {
+        for i in 0..3 {
+            println!("发送: {}", i);
+            tx.send(i).unwrap(); // 缓冲区满时阻塞
+            println!("已发送: {}", i);
+        }
+    });
+
+    thread::sleep(Duration::from_secs(1));
+    
+    for _ in 0..3 {
+        let val = rx.recv().unwrap();
+        println!("接收: {}", val);
+        thread::sleep(Duration::from_secs(1));
+    }
+}
+----
+
+== Arc + Mutex
+
+`Arc`（原子引用计数）和`Mutex`（互斥锁）组合用于在多个线程间共享可变状态。
+
+=== 特点
+
+- **共享所有权**：`Arc`允许多个线程持有同一数据的引用
+- **互斥访问**：`Mutex`保证同一时间只有一个线程可以访问数据
+- **内部可变性**：通过`Mutex`实现内部可变性
+
+=== 应用场景
+
+- 需要多个线程读写同一状态
+- 共享配置信息
+- 计数器和统计数据
+
+=== 基本用法
+
+[source,rust]
+----
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+fn main() {
+    let counter = Arc::new(Mutex::new(0));
+    let mut handles = vec![];
+
+    for _ in 0..10 {
+        let counter = Arc::clone(&counter);
+        let handle = thread::spawn(move || {
+            let mut num = counter.lock().unwrap();
+            *num += 1;
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("计数器: {}", *counter.lock().unwrap());
+}
+----
+
+== Arc + RwLock
+
+`RwLock`（读写锁）允许多个线程同时读取数据，但写入时需要独占访问。
+
+=== 特点
+
+- **多读单写**：多个读者可同时访问
+- **写者独占**：写入时阻塞所有读者和写者
+- **更高并发性**：读多写少场景性能优于`Mutex`
+
+=== 应用场景
+
+- 配置读取（读多写少）
+- 缓存系统
+- 共享数据查询
+
+=== 基本用法
+
+[source,rust]
+----
+use std::sync::{Arc, RwLock};
+use std::thread;
+
+fn main() {
+    let data = Arc::new(RwLock::new(String::from("初始数据")));
+    let mut handles = vec![];
+
+    // 多个读者
+    for _ in 0..3 {
+        let data = Arc::clone(&data);
+        let handle = thread::spawn(move || {
+            let read = data.read().unwrap();
+            println!("读取: {}", *read);
+        });
+        handles.push(handle);
+    }
+
+    // 写者
+    let data_clone = Arc::clone(&data);
+    let write_handle = thread::spawn(move || {
+        let mut write = data_clone.write().unwrap();
+        *write = String::from("更新后的数据");
+        println!("写入完成");
+    });
+    handles.push(write_handle);
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+}
+----
+
+== Condvar
+
+条件变量（`Condvar`）用于线程间的条件通知，允许线程等待特定条件满足。
+
+=== 特点
+
+- **条件等待**：线程可阻塞等待条件满足
+- **通知机制**：可唤醒一个或所有等待线程
+- **配合Mutex使用**：通常与`Mutex`结合使用
+
+=== 应用场景
+
+- 生产者-消费者模式（带条件）
+- 等待资源可用
+- 线程间同步通知
+
+=== 基本用法
+
+[source,rust]
+----
+use std::sync::{Arc, Condvar, Mutex};
+use std::thread;
+
+fn main() {
+    let pair = Arc::new((Mutex::new(false), Condvar::new()));
+    let pair_clone = Arc::clone(&pair);
+
+    // 等待线程
+    thread::spawn(move || {
+        let (lock, cvar) = &*pair_clone;
+        let mut started = lock.lock().unwrap();
+        while !*started {
+            started = cvar.wait(started).unwrap();
+        }
+        println!("条件满足，开始执行");
+    });
+
+    // 通知线程
+    thread::spawn(move || {
+        thread::sleep(std::time::Duration::from_secs(1));
+        let (lock, cvar) = &*pair;
+        let mut started = lock.lock().unwrap();
+        *started = true;
+        cvar.notify_one();
+        println!("已发送通知");
+    }).join().unwrap();
+}
+----
+
+== Barrier
+
+屏障（`Barrier`）用于同步多个线程，等待所有线程到达某个点后再继续。
+
+=== 特点
+
+- **同步点**：所有线程必须到达屏障才能继续
+- **可重用**：屏障可以被多次使用
+- **等待计数**：创建时指定等待的线程数量
+
+=== 应用场景
+
+- 并行计算阶段同步
+- 多线程初始化完成后统一开始
+- 分阶段任务协调
+
+=== 基本用法
+
+[source,rust]
+----
+use std::sync::Barrier;
+use std::thread;
+
+fn main() {
+    let barrier = Arc::new(Barrier::new(3));
+    let mut handles = vec![];
+
+    for i in 0..3 {
+        let barrier = Arc::clone(&barrier);
+        let handle = thread::spawn(move || {
+            println!("线程 {} 到达屏障", i);
+            barrier.wait();
+            println!("线程 {} 继续执行", i);
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+}
+----
+
+== Crossbeam通道（第三方）
+
+Crossbeam是一个流行的第三方库，提供更强大的通道实现，支持多生产者多消费者。
+
+=== 特点
+
+- **多生产者多消费者**：允许多个发送者和多个接收者
+- **高性能**：比标准库通道更快
+- **更多特性**：选择操作、超时等
+
+=== 应用场景
+
+- 需要多对多通讯的场景
+- 高性能并发系统
+- 需要选择操作的场景
+
+=== 基本用法
+
+[source,rust]
+----
+use crossbeam_channel as channel;
+use std::thread;
+
+fn main() {
+    let (s1, r1) = channel::unbounded();
+    let (s2, r2) = channel::unbounded();
+
+    // 第一个发送者
+    thread::spawn(move || {
+        s1.send("A").unwrap();
+    });
+
+    // 第二个发送者
+    thread::spawn(move || {
+        s2.send("B").unwrap();
+    });
+
+    // 接收者可以选择从任一通道接收
+    loop {
+        channel::select! {
+            recv(r1) -> msg => println!("从通道1收到: {:?}", msg),
+            recv(r2) -> msg => println!("从通道2收到: {:?}", msg),
+            default => break,
+        }
+    }
+}
+----
+
+== 选择合适的通讯方式
+
+选择哪种通讯方式取决于具体需求：
+
+1. **需要消息传递**：优先使用通道（mpsc/sync_channel/Crossbeam）
+2. **需要共享状态**：使用`Arc + Mutex`或`Arc + RwLock`
+3. **需要背压控制**：使用同步通道
+4. **读多写少**：使用`Arc + RwLock`
+5. **需要条件等待**：使用`Condvar`
+6. **多线程同步点**：使用`Barrier`
+
+== 最佳实践
+
+1. **优先使用通道**：遵循"通过通讯共享内存"的理念
+2. **最小化共享状态**：减少并发访问的复杂性
+3. **正确处理错误**：通道操作可能失败，需妥善处理
+4. **避免死锁**：注意锁的获取顺序和通道的关闭时机
+5. **合理选择工具**：根据具体场景选择最合适的通讯方式
+
+== 总结
+
+Rust提供了丰富的进程内通讯机制，每种方式都有其适用场景：
+
+- **通道**：适用于消息传递场景，简单安全
+- **锁**：适用于共享状态场景，灵活但需谨慎
+- **同步原语**：适用于特定同步需求
+
+通过合理选择和组合这些工具，可以构建安全、高效的并发程序。

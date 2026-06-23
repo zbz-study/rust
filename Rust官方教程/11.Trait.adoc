@@ -1,0 +1,322 @@
+= Trait
+:scripts: cjk
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+:numbered:
+:sectnums:
+:sectnum-depth: 3
+:source-highlighter: coderay
+
+== Trait: 定义共同行为
+
+* `Train` 定义了一个类型与其它类型共同具备的功能
+* `Train` 用抽象的方式定义共同行为
+* `train bounds` 可以指定一个泛型是任意一个确定行为的类型
+* `Trains` 与其它语言中的接口类似，但仍然有不同的地方
+
+== 定义、实现与使用 Trait
+
+[source,rust]
+----
+pub trait Summary {
+    fn summarize(&self) -> String;
+}
+
+pub struct NewsArticle {
+    pub headline: String,
+    pub location: String,
+    pub author: String,
+    pub content: String,
+}
+
+impl Summary for NewsArticle {
+    fn summarize(&self) -> String {
+        format!("{}, by {} ({})", self.headline, self.author, self.location)
+    }
+}
+
+pub struct SocialPost {
+    pub username: String,
+    pub content: String,
+    pub reply: bool,
+    pub repost: bool,
+}
+
+impl Summary for SocialPost {
+    fn summarize(&self) -> String {
+        format!("{}: {}", self.username, self.content)
+    }
+}
+
+
+fn main() {
+    let article = NewsArticle {
+        headline: String::from("Penguins win the Stanley Cup Championship!"),
+        location: String::from("Pittsburgh, PA, USA"),
+        author: String::from("Iceburgh"),
+        content: String::from(
+            "The Pittsburgh Penguins once again are the best \
+             hockey team in the NHL.",
+        ),
+    };
+    println!("New article available! {}", article.summarize());
+
+    let post = SocialPost {
+        username: String::from("horse_ebooks"),
+        content: String::from(
+            "of course, as you probably already know, people",
+        ),
+        reply: false,
+        repost: false,
+    };
+    println!("1 new post: {}", post.summarize());
+}
+----
+
+== 默认实现
+
+[source,rust]
+----
+pub trait Summary {
+    fn summarize(&self) -> String {
+        String::from("(Read more...)")
+    }
+}
+----
+
+* 默认实现可以调用同一trait中的其他方法，即使这些其他方法没有默认实现
+
+== Trait 作为参数
+
+[source,rust]
+----
+pub fn notify(item: &impl Summary) {
+    println!("Breaking news! {}", item.summarize());
+}
+----
+
+== Trait Bounds 语法
+
+* 冗长的语法: `impl Trait` 语法适用于简单的情况，但实际上它是一种更冗长形式（称为 `trait 约束`）的语法糖
++
+[source,rust]
+----
+pub fn notify<T: Summary>(item: &T) {
+    println!("Breaking news! {}", item.summarize());
+}
+----
+
+* 多个 Trait 的参数
++
+[source,rust]
+----
+// 如果Trait相同
+pub fn notify<T: Summary>(item1: &T, item2: &T) {
+    println!("Breaking news! {}", item1.summarize());
+    println!("Breaking news! {}", item1.summarize());
+}
+
+// 如果Trait不同
+pub fn notify(item1: &impl Summary1, item2: &impl Summary2) {
+    println!("Breaking news! {}", item1.summarize());
+    println!("Breaking news! {}", item2.summarize());
+}
+----
+
+* Trait Bounds: 一个参数实现多个 Trait
++
+[source,rust]
+----
+pub fn notify(item: &(impl Summary + Display)) {
+    println!("Breaking news! {}", item.summarize());
+}
+// 等同于
+pub fn notify<T: Summary + Display>(item: &T) {
+    println!("Breaking news! {}", item.summarize());
+}
+// 使用 where 更清晰
+pub fn notify<T>(item: &T)
+where
+    T: Summary + Display
+{
+    println!("Breaking news! {}", item.summarize());
+}
+
+// 使用 where 描述多个参数
+fn some_function<T, U>(t: &T, u: &U) -> i32
+where
+    T: Display + Clone,
+    U: Clone + Debug,
+{
+    unimplemented!()
+}
+----
+
+* 使用 Trait Bounds 有条件的实现方法
++
+[source,rust]
+----
+use std::fmt::Display;
+
+struct Pair<T> {
+    x: T,
+    y: T,
+}
+
+impl<T> Pair<T> {
+    fn new(x: T, y: T) -> Self {
+        Self { x, y }
+    }
+}
+
+impl<T: Display + PartialOrd> Pair<T> {
+    fn cmp_display(&self) {
+        if self.x >= self.y {
+            println!("The largest member is x = {}", self.x);
+        } else {
+            println!("The largest member is y = {}", self.y);
+        }
+    }
+}
+----
+** 只有实现了 Display 和 PartialOrd 的 T 类型才会实现 cmp_display 方法
+* 通用实现(blanket implementations)
+** 对任何实现了特定 trait 的类型提供通用实现
+** 标准库为实现了 `Display` trait 的任何类型实现了 `ToString` trait
++
+[source,rust]
+----
+impl<T: Display> ToString for T {
+    // --snip--
+}
+----
+
+** 因为标准库有这个通用实现，所以我们可以在任何实现了 `Display` Train的类型上调用由 `ToString` Train 定义的 `to_string` 方法
+
+== 返回 trait
+
+* 示例
++
+[source,rust]
+----
+fn returns_summarizable() -> impl Summary {
+    SocialPost {
+        username: String::from("horse_ebooks"),
+        content: String::from(
+            "of course, as you probably already know, people",
+        ),
+        reply: false,
+        repost: false,
+    }
+}
+----
+* 只有在返回单一类型时才能使用 `impl Trait`，下面的代码是有不行的
++
+[source,rust]
+----
+fn returns_summarizable(switch: bool) -> impl Summary {
+    if switch {
+        NewsArticle {
+            headline: String::from(
+                "Penguins win the Stanley Cup Championship!",
+            ),
+            location: String::from("Pittsburgh, PA, USA"),
+            author: String::from("Iceburgh"),
+            content: String::from(
+                "The Pittsburgh Penguins once again are the best \
+                 hockey team in the NHL.",
+            ),
+        }
+    } else {
+        SocialPost {
+            username: String::from("horse_ebooks"),
+            content: String::from(
+                "of course, as you probably already know, people",
+            ),
+            reply: false,
+            repost: false,
+        }
+    }
+}
+----
+
+** 如何正确编写可参考面向对象编程章节中的内容
+
+== 关联类型
+
+* 关联类型(Associated Types)
+* 定义在 trait 中的一种特殊类型占位符，它允许你在实现 trait 时指定具体类型，从而提供更清晰、更灵活的自定义类型关联
+* 核心作用是解耦 trait 定义中的类型声明与具体实现
+* 关联类型可以指定默认值
+
+[source,rust]
+----
+trait Iterator {
+    type Item; // 关联类型声明
+    // type Item = i32; // 可以指定默认值
+    fn next(&mut self) -> Option<Self::Item>;
+}
+
+// 为自定义集合实现 Iterator
+struct Counter(u32);
+
+impl Iterator for Counter {
+    type Item = u32; // 指定关联类型的具体类型
+    fn next(&mut self) -> Option<Self::Item> {
+        // ... 实现逻辑
+    }
+}
+----
+
+== 为什么需要关联类型？与泛型的区别
+
+* 避免冗余的泛型参数
++
+[source,rust]
+----
+// 使用泛型参数的写法（冗余）
+trait Graph<N, E> {
+    fn nodes(&self) -> Vec<N>;
+    fn edges(&self) -> Vec<E>;
+}
+
+impl Graph<String, usize> for MyGraph { /* ... */ }
+
+fn main() {
+    let graph: MyGraph = ...;
+    let nodes: Vec<String> = graph.nodes(); // 必须显式指定类型
+}
+----
++
+[source,rust]
+----
+trait Graph {
+    type Node; // 关联类型
+    type Edge;
+    fn nodes(&self) -> Vec<Self::Node>;
+    fn edges(&self) -> Vec<Self::Edge>;
+}
+
+impl Graph for MyGraph {
+    type Node = String; // 指定具体类型
+    type Edge = usize;
+    fn nodes(&self) -> Vec<String> { /* ... */ }
+    fn edges(&self) -> Vec<usize> { /* ... */ }
+}
+
+fn main() {
+    let graph: MyGraph = ...;
+    let nodes = graph.nodes(); // 编译器自动推断为 Vec<String>
+}
+----
+* 区别
++
+[cols="1,3,3",options="header"]
+|===
+| 特性| 泛型 Trait (`trait Trait<T>`)| 关联类型 (`trait Trait { type T; }`)
+| 实现次数| 可针对不同 `T` 多次实现| **每个类型只能实现一次**
+| 类型绑定| 在 impl 时绑定| 在 impl 时绑定
+| 调用复杂度| 需手动指定 `T`（如 `impl Trait<u32>`） | 自动推断（`impl Trait`）
+| 典型用例| `From<T>`, `Add<RHS>`| `Iterator`, `Deref`
+|===

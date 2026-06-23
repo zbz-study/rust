@@ -1,0 +1,166 @@
+= 函数式编程特性-闭包
+:scripts: cjk
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+:numbered:
+:sectnums:
+:sectnum-depth: 3
+:source-highlighter: coderay
+
+== 闭包简介
+
+* 闭包就是匿名函数，可以保存在变量中，或作为参数传递给其他函数
+* 你可以在一个地方创建它，然后在其它不同上下文的地方调用它
+* 与函数不同，闭包可以获取在它定义所在的作用域中变量的值
+* 闭包通常不需要像 `fn` 函数那样标注参数或返回值的类型，因为闭包存储在变量中，不会暴露给外部
+* 闭包通常简短，并且只在特定的狭窄上下文中才有意义，而非在任意场景中都适用，极少数情况下编译器也需要闭包类型注解
+
+== 闭包捕获值的三种方式
+
+=== 不可变借用
+
+[source,rust]
+----
+fn main() {
+    let list = vec![1, 2, 3];
+    println!("Before defining closure: {list:?}");
+
+    let only_borrows = || println!("From closure: {list:?}");
+
+    println!("Before calling closure: {list:?}");
+    only_borrows();
+    println!("After calling closure: {list:?}");
+}
+----
+
+=== 可变借用
+
+[source,rust]
+----
+fn main() {
+    let mut list = vec![1, 2, 3];
+    println!("Before defining closure: {list:?}");
+
+    let mut borrows_mutably = || list.push(7);
+
+    // println!("Before calling closure: {list:?}");    错误！
+    borrows_mutably();
+    println!("After calling closure: {list:?}");
+}
+----
+
+[NOTE]
+====
+* 在 `borrows_mutably` 闭包的定义和调用之间不再有 `println!`: 当定义闭包时，它捕获了对 `list`
+的可变引用; 在调用闭包之后，我们不再使用该闭包，这时可变借用结束
+* 可变借用在定义和调用之间，不允许其他不可变借用
+====
+
+=== 获取所有权
+
+[source,rust]
+----
+use std::thread;
+
+fn main() {
+    let list = vec![1, 2, 3];
+    println!("Before defining closure: {list:?}");
+
+    thread::spawn(move || println!("From thread: {list:?}"))
+        .join()
+        .unwrap();
+}
+----
+
+* 闭包如果要强制获取作用域中值的所有权，要在参数列表前添加 `move` 关键字
+* 示例是使用 `move` 来强制闭包为线程获取 list 的所有权
+* 新线程不确定在主线程执行完前执行完，如果主线程维护了 list 的所有权但却在新线程之前结束，那么会丢弃 list，这样在新线程中的不可变引用将失效。因此，编译器要求 list 被移动到在新线程中运行的闭包中，这样引用才不会有总是
+* 如果移除 `move` 关键字，或者在闭包定义后在主线程中使用 list，编译器会报错！
+
+== 将获取的值从闭包中移出与 `Fn` 系列 `Trait`
+
+=== 闭包体处理环境中的值的方式
+
+* 将一个捕获的值移出闭包
+* 修改捕获的值
+* 既不移动也不修改值
+* 一开始就不从环境中捕获任何值
+
+=== 处理方式影响闭包实现 `Train`
+
+==== FnOnce
+
+* 适用于只能被调用一次的闭包
+* 所有闭包至少都实现了这个 trait，因为所有闭包都能被调用
+* 一个会将捕获的值从闭包体中移出的闭包只会实现 FnOnce trait，而不会实现其他 Fn 相关的 trait，因为它只能被调用一次
+
+[source,rust]
+----
+impl<T> Option<T> {
+    pub fn unwrap_or_else<F>(self, f: F) -> T
+    where
+        F: FnOnce() -> T
+    {
+        match self {
+            Some(x) => x,
+            None => f(),
+        }
+    }
+}
+----
+
+==== Fn
+
+* 适用于既不将捕获的值移出闭包体，也不修改捕获值的闭包，同时也包括不从环境中捕获任何值的闭包
+* 这类闭包可以被多次调用而不会改变其环境，这在会多次并发调用闭包的场景中十分重要
+
+[source,rust]
+----
+#[derive(Debug)]
+struct Rectangle {
+width: u32,
+height: u32,
+}
+
+fn main() {
+let mut list = [
+Rectangle { width: 10, height: 1 },
+Rectangle { width: 3, height: 5 },
+Rectangle { width: 7, height: 12 },
+];
+
+    list.sort_by_key(|r| r.width);
+    println!("{list:#?}");
+}
+----
+
+==== FnMut
+
+* 适用于不会将捕获的值移出闭包体，但可能会修改捕获值的闭包
+* 这类闭包可以被调用多次
+
+[source,rust]
+----
+#[derive(Debug)]
+struct Rectangle {
+    width: u32,
+    height: u32,
+}
+
+fn main() {
+    let mut list = [
+        Rectangle { width: 10, height: 1 },
+        Rectangle { width: 3, height: 5 },
+        Rectangle { width: 7, height: 12 },
+    ];
+
+    let mut num_sort_operations = 0;
+    list.sort_by_key(|r| {
+        num_sort_operations += 1;
+        r.width
+    });
+    println!("{list:#?}, sorted in {num_sort_operations} operations");
+}
+----
+

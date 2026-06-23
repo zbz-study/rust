@@ -1,0 +1,60 @@
+= 项目结构
+:scripts: cjk
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+:numbered:
+:sectnums:
+:sectnum-depth: 3
+:source-highlighter: coderay
+
+== 简介
+* 作用域(scope): 代码中某个名字(如变量、常量、函数、模块等)可以被访问的有效范围
+* 工作空间(workspaces): 管理多个 `Package`
+* 包(Packages): 管理多个 `Crate`，与其它语言的“项目”的概念类似
+* Crates: 一个模块的树形结构，形成了库或二进制项目，与其它语言的“包”的概念类似
+* 模块(Modules) 和 use: 控制作用域和路径的私有性
+* 路径(path): 一个命名例如结构体、函数或模块等项的方式
+
+== Crates
+* 一个 `Crate` 是Rust编译器处理的最小代码量，即使是 rustc 编译的单个源文件，也会被视为一个 `Crate`
+* 一个 `Crate` 可以包含多个 `Module`，这些 `Module` 可以定义在其它文件中与这个 `Crate` 文件一起编译
+* `Crate` 有两种形式:
+** 二进制(Binary Crate)
+*** 可以编译成可执行程序并运行的程序，比如命令行程序或服务器
+*** 必须有一个名为main的函数，该函数定义了可执行程序运行时的行为
+** 库(Library Crate)
+*** 没有 main 函数，也不会编译成可执行文件
+*** 定义的功能旨在供多个项目共享
+*** 大多数时候，Rust 开发者说的 `Crate` 其实是 `Library Crate`
+* Rust编译器从 `crate root` 这个源文件开始构造 crate 的根模块
+
+== Packages
+* 一个 `Package` 捆绑了一个或多个 `Crate` 来提供一级功能集合
+* 一个 `Package` 包含一个 `Cargo.toml` 文件，描述如何编译这些 `Crate`
+* `Cargo` 实际上就是一个包含 `Binary Crate` 的 `Package`，用来编译代码的命令行工具
+* `Cargo Package` 也可以包含这个 `Binary Crate` 所依赖的 `Library Crate`；其它项目也可以依赖这个 `Library Crate`，与命令行工具使用逻辑相同
+* 一个 `Package` 必须至少包含一个 `crate`，可以是 `Binary Crate` 或 `Library Crate`，但最多只能有一个 `Library Crate`
+* Cargo 约定
+** src/main.rs 是与包同名的二进制箱的箱根
+** src/lib.rs，是与包同名的库箱的箱根
+* 一个 `Package` 可以通过在 src/bin 目录中放置文件来拥有多个 `Binary Crate`：每个文件都将是一个单独的 `Binary Crate`
+
+== Modules
+* *声明模块*: 在 crate 根文件中，你可以声明一个新模块，比如，用 `mod garden;` 声明了一个叫做 `garden` 的模块。编译器会在下列路径中寻找模块代码：
+** 内联，用大括号替换 mod garden 后跟的分号
+** 在文件 src/garden.rs
+** 在文件 src/garden/mod.rs
+* *声明子模块*: 在除了 crate 根节点以外的任何文件中，你可以定义子模块，比如，在 src/garden.rs 中声明 `mod vegetables;`。编译器会在以父模块命名的目录中寻找子模块代码：
+** 内联，直接在 mod vegetables 后方不是一个分号而是一个大括号
+** 在文件 src/garden/vegetables.rs
+** 在文件 src/garden/vegetables/mod.rs
+* *模块中的代码路径*: 一旦一个模块是你 crate 的一部分，你可以在隐私规则允许的前提下，从同一个 crate 内的任意地方，通过代码路径引用该模块的代码。举例而言，一个 garden vegetables 模块下的 Asparagus 类型可以通过 `crate::garden::vegetables::Asparagus` 访问
+* *私有 vs 公用*:
+** 一个模块里的代码默认对其父模块私有
+** 为了使一个模块公用，应当在声明时使用 `pub mod` 替代 `mod`
+** 为了使一个公用模块内部的成员公用，应当在声明前使用pub。
+* *use 关键字*:
+** 在一个作用域内，use关键字创建了一个项的快捷方式，用来减少长路径的重复
+** 在任何可以引用 `crate::garden::vegetables::Asparagus` 的作用域，你可以通过 `use crate::garden::vegetables::Asparagus;` 创建一个快捷方式，然后你就可以在作用域中只写 `Asparagus` 来使用该类型。
+

@@ -1,0 +1,182 @@
+= Cargo
+:scripts: cjk
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+:numbered:
+:sectnums:
+:sectnum-depth: 3
+:source-highlighter: coderay
+
+== 查看版本
+
+[source,shell]
+----
+cargo --version
+----
+
+== 创建项目
+
+[source,shell]
+----
+cargo new <项目名称>
+cd xxx
+----
+
+== Cargo.toml
+
+.Cargo.toml
+[source,toml]
+----
+[package]
+name = "xxx"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+----
+
+* package: 包(当前项目)配置
+** name: 项目的名称
+** version: 项目的版本
+** edition: 使用的 Rust 版本
+* dependencies: 依赖列表
+* 语义化版本（Semantic Versioning）
+** 有时也称为 SemVer
+** 参考: link:https://semver.org/lang/zh-CN/[语义化版本2.0]
+** 版本号递增规则
+. 主版本号：当你做了不兼容的 API 修改，
+. 次版本号：当你做了向下兼容的功能性新增，
+. 修订号：当你做了向下兼容的问题修正。
+
+[NOTE]
+====
+在 Rust 中，代码包被称为 crates
+====
+
+== 升级 crates
+
+[source,shell]
+----
+cargo update
+----
+
+* 忽略 Cargo.lock 文件，并计算出所有符合 Cargo.toml 声明的最新版本，并把这些版本写入 Cargo.lock 文件
+
+== 仅构建
+
+[source,shell]
+----
+cargo build
+----
+
+== 构建并运行
+
+[source,shell]
+----
+cargo run
+----
+
+== 检查
+
+只检查不构建，比build快
+
+[source,shell]
+----
+cargo check
+----
+
+== 构建目标到本地平台
+
+优化编译项目，比构建慢，但是优化编译的的程序比构建的运行要快
+
+[source,shell]
+----
+cargo build --release
+----
+
+== 构建目标到指定平台
+
+=== 目标平台
+
+[cols="2,4,3",options="header"]
+|===
+| 目标平台| 参数名称 | 特点
+| Linux x86_64 静态链接 | x86_64-unknown-linux-musl | 兼容性好，编译简单
+|===
+
+=== 直接构建
+
+[source,shell]
+----
+cargo build --target <目标平台>
+----
+
+=== Docker方式构建
+
+. 安装 cross
++
+[source,shell]
+----
+cargo install cross --git https://github.com/cross-rs/cross
+----
+
+. 运行 cross 目标
++
+[source,shell]
+----
+cross build --release --target <目标平台>
+----
+
+== 阅读crates的开发文档
+
+构建所有本地依赖提供的文档并在浏览器中打开
+
+[source,shell]
+----
+cargo doc --open
+----
+
+== 测试文档注释中的代码
+
+[source,shell]
+----
+cargo test
+----
+
+== 发布
+
+=== 先登录
+
+[source,shell]
+----
+cargo login
+----
+
+然后会提示你输入 API token，去 https://crates.io/settings/tokens 获取 token 并粘贴即可 === 检查是否有错误
+
+[source,shell]
+----
+cargo check
+----
+
+=== 检查文档是否能生成
+
+[source,shell]
+----
+cargo doc --no-deps --open
+----
+
+=== 预发布检查（会上传但不发布）
+
+[source,shell]
+----
+cargo publish --dry-run
+----
+
+=== 发布
+
+[source,shell]
+----
+cargo publish
+----

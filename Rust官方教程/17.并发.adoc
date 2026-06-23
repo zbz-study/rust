@@ -1,0 +1,326 @@
+= 并发
+:doctype: book
+:scripts: cjk
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+:numbered:
+:sectnums:
+:sectnum-depth: 3
+:source-highlighter: coderay
+
+== 创建线程(spawn)
+
+[source,rust]
+----
+use std::thread;
+use std::time::Duration;
+
+fn main() {
+    thread::spawn(|| {
+        for i in 1..10 {
+            println!("hi number {i} from the spawned thread!");
+            thread::sleep(Duration::from_millis(1));
+        }
+    });
+
+    for i in 1..5 {
+        println!("hi number {i} from the main thread!");
+        thread::sleep(Duration::from_millis(1));
+    }
+}
+----
+
+== 等待线程结束(join)
+
+[source,rust]
+----
+use std::thread;
+use std::time::Duration;
+
+fn main() {
+    let handle = thread::spawn(|| {
+        for i in 1..10 {
+            println!("hi number {i} from the spawned thread!");
+            thread::sleep(Duration::from_millis(1));
+        }
+    });
+
+    for i in 1..5 {
+        println!("hi number {i} from the main thread!");
+        thread::sleep(Duration::from_millis(1));
+    }
+
+    handle.join().unwrap();
+}
+----
+
+== 线程使用move闭包
+
+* 通过在闭包之前添加 move 关键字，我们强制闭包获取其使用的值的所有权
+
+[source,rust]
+----
+use std::thread;
+
+fn main() {
+    let v = vec![1, 2, 3];
+
+    let handle = thread::spawn(move || {
+        println!("Here's a vector: {v:?}");
+    });
+
+    handle.join().unwrap();
+}
+----
+
+== 使用消息传递在线程间传输数据
+
+* 确保安全并发的一种越来越流行的方法是消息传递，即线程或参与者通过相互发送包含数据的消息进行通信
+* 来自Go语言文档的一句口号：“不要通过共享内存来通信；相反，要通过通信来共享内存。”
+
+=== 通道(Channel)
+
+* 为了实现消息发送的并发，Rust的标准库提供了通道的一种实现
+* “通道”是一个通用的编程概念，通过它数据可以从一个线程发送到另一个线程
+* 一个通道有两个部分：发送端和接收端
+* 发送器有一个 `send` 方法，接受我们要发送的值，返回一个 Result<T, E> 类型，如果接收器已经被丢弃，没有地方发送值，发送操作将返回一个错误
+* 接收器两个有用的方法：`recv` 和 `try_recv`
+** `recv` 阻塞线程的执行，直到有值通过通道发送过来，返回一个 Result<T, E>，当发送器关闭时，recv 将返回一个错误，以表明不会再有值发送过来
+** `try_recv` 方法不会阻塞，而是会立即返回一个 `Result<T, E>`：如果有可用消息，则返回包含消息的 `Ok` 值；如果这次没有任何消息，则返回 `Err` 值
+* `send` 函数会获取其参数的所有权，当值被转移时，接收方会获取它的所有权
+
+[source,rust]
+----
+use std::sync::mpsc;
+use std::thread;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let val = String::from("hi");
+        tx.send(val).unwrap();              // 所有权被转移给接收器
+    });
+
+    let received = rx.recv().unwrap();
+    println!("Got: {received}");
+}
+----
+
+=== 发送多个值并观察接收方等待情况
+
+* 在主线程中，我们不再显式调用 recv 函数：相反，我们将 rx 视为一个迭代器
+* 对于接收到的每个值，我们都会将其打印出来
+* 当通道关闭时，迭代将结束
+
+[source,rust]
+----
+use std::sync::mpsc;
+use std::thread;
+use std::time::Duration;
+
+fn main() {
+    let (tx, rx) = mpsc::channel();
+
+    thread::spawn(move || {
+        let vals = vec![
+            String::from("hi"),
+            String::from("from"),
+            String::from("the"),
+            String::from("thread"),
+        ];
+
+        for val in vals {
+            tx.send(val).unwrap();
+            thread::sleep(Duration::from_secs(1));
+        }
+    });
+
+    for received in rx {
+        println!("Got: {received}");
+    }
+}
+----
+
+=== 通过克隆发送器创建多个生产者
+
+* `mpsc` 是多个生产者，单个消费者（multiple producer, single consumer）的缩写
+* 可以通过克隆发送者创建多个线程，这些线程都将值发送到同一个接收者
+
+[source,rust]
+----
+fn main() {
+    // --snip--
+
+    let (tx, rx) = mpsc::channel();
+
+    let tx1 = tx.clone();
+    thread::spawn(move || {
+        let vals = vec![
+            String::from("hi"),
+            String::from("from"),
+            String::from("the"),
+            String::from("thread"),
+        ];
+
+        for val in vals {
+            tx1.send(val).unwrap();
+            thread::sleep(Duration::from_secs(1));
+        }
+    });
+
+    thread::spawn(move || {
+        let vals = vec![
+            String::from("more"),
+            String::from("messages"),
+            String::from("for"),
+            String::from("you"),
+        ];
+
+        for val in vals {
+            tx.send(val).unwrap();
+            thread::sleep(Duration::from_secs(1));
+        }
+    });
+
+    for received in rx {
+        println!("Got: {received}");
+    }
+
+    // --snip--
+}
+----
+
+== 共享状态并发
+
+* 处理并发另一种方式是让多个线程访问相同的共享数据
+* 注意 Go 语言文档中的这句口号：“不要通过共享内存来通讯”
+* 共享内存类似于多所有权：多个线程可以同时访问相同的内存位置，这会增加额外的复杂性，因为需要管理多个所有者
+
+=== 使用互斥器实现同一时刻只允许一个线程访问数据
+
+* 互斥器(`mutex`): 共享内存中较常见的并发原语之一，是 `mutual exclusion` 的缩写
+* 互斥器在同一时刻只允许一个线程访问这些数据
+* 要访问互斥器中的数据，线程必须首先通过请求获取互斥器的锁(`Lock`)
+* 锁是一种数据结构，是互斥锁的一部分，用于跟踪当前谁对数据拥有独占访问权
+* 因此，互斥锁被描述为通过锁定系统保护它所包含的数据
+* 互斥锁因使用难度较大而闻名，因为你必须记住两条规则：
+** 在使用数据之前，你必须尝试获取锁
+** 当你处理完互斥锁保护的数据后，必须解锁数据，以便其他线程能够获取锁
+* 如果持有锁的另一个线程发生恐慌，对 lock 的调用将失败
+
+[source,rust]
+----
+use std::sync::Mutex;
+
+fn main() {
+    let m = Mutex::new(5);
+
+    {
+        let mut num = m.lock().unwrap();    // lock方法用来获取锁
+        *num = 6;
+    }
+
+    println!("m = {:?}", m.lock().unwrap());
+}
+----
+
+* `Mutex<T>` 是一个智能指针，更准确地说，对 `lock` 的调用返回一个名为 `MutexGuard` 的智能指针，它被封装在一个 LockResult 中，我们通过调用 `unwrap` 来处理这个结果
+* `MutexGuard` 智能指针实现了 `Deref` 来指向我们内部的数据；这个智能指针还实现了 `Drop`，当 `MutexGuard`
+超出作用域时（在内层作用域结束时发生），它会自动释放锁
+* 因此，我们不会有忘记释放锁并阻止互斥锁被其他线程使用的风险，因为锁的释放是自动发生的
+* 释放锁后，我们可以打印互斥锁的值，看到我们能够将内部的 i32 改为 6
+
+=== 在多个线程之间共享一个Mutex<T>
+
+* 不能将锁的所有权移动到多个线程中，下面代码编译时会报错
++
+[source,rust]
+----
+use std::sync::Mutex;
+use std::thread;
+
+fn main() {
+    let counter = Mutex::new(0);
+    let mut handles = vec![];
+
+    for _ in 0..10 {
+        let handle = thread::spawn(move || {
+            let mut num = counter.lock().unwrap();
+
+            *num += 1;
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("Result: {}", *counter.lock().unwrap());
+}
+----
+
+=== 原子引用计数(Arc<T>)
+
+* 原子引用计数(atomically reference counted)
+* 原子类型(`Atomics`)是另一类这里还未涉及到的并发原语，原子类型就像基本类型一样，可以安全地在线程间共享
+* 不是所有的基本类型都是原子性的，因为线程安全会造成性能损失
+
+[source,rust]
+----
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+fn main() {
+    let counter = Arc::new(Mutex::new(0));
+    let mut handles = vec![];
+
+    for _ in 0..10 {
+        let counter = Arc::clone(&counter);
+        let handle = thread::spawn(move || {
+            let mut num = counter.lock().unwrap();
+
+            *num += 1;
+        });
+        handles.push(handle);
+    }
+
+    for handle in handles {
+        handle.join().unwrap();
+    }
+
+    println!("Result: {}", *counter.lock().unwrap());
+}
+----
+
+* 对于简单的数值运算，标准库中 std::sync::atomic 模块 提供了比 Mutex<T> 更简单的类型
+
+== 使用 Send 和 Sync Trait 实现可扩展的并发
+
+* 之前所说的并发特性都属于标准库，而非 Rust 语言特性
+* Rust 语言内置特性是 std::marker traits 的 Send 和 Sync
+
+=== 通过Send在不同线程之间转移所有权
+
+* 标记了 `Send` trait 的类型的值的所有权可以在线程之间转移
+* 几乎所有的Rust类型都是 `Send`，也有例外，如 `Rc<T>`: 如果你克隆了一个 `Rc<T>` 值，多个线程可能会同时更新引用计数，因此，`Rc<T>` 被设计用于单线程场景
+* 任何完全由 Send 类型组成的类型也会自动标记为 Send
+* 除了原始指针之外，几乎所有基本类型都是 Send
+
+=== 使用 Sync 允许多线程访问
+
+* 标记了 `Sync` trait 表明，实现 `Sync` 的类型被多个线程引用是安全的
+* 对于任意类型 `T`，如果`&T`（对`T`的不可变引用）实现了 `Send`，那么 `T` 就实现了 `Sync`，意味着该引用可以被安全地发送到其它线程
+* 与 `Send` 类似，基本类型都实现了 Sync，完全由实现了 `Sync` 的类型组成的类型也实现了 `Sync`
+* 智能指针 `Rc<T>`，`RefCell<T>` 和 `Cell<T>` 系列类型没有实现 Sync
+* `RefCell<T>` 在运行时所进行的借用检查也不是线程安全的
+* `Mutex<T>` 实现了 Sync，可以被用来在多线程中共享访问
+
+=== 手动实现 Send 和 Sync 是不安全的
+
+* 由于完全由实现了 Send 和 Sync trait 的其他类型组成的类型也会自动实现 Send 和 Sync，因此我们无需手动实现这些 trait
+* 作为标记trait，它们没有任何需要实现的方法，仅用于强制实施与并发相关的不变性
+* 手动实现这些特性涉及到实现不安全的Rust代码，构建不由Send和Sync部分组成的新并发类型，需要仔细考虑以维持安全保证
+
