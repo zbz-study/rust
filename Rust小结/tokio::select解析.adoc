@@ -1,0 +1,112 @@
+= tokio::select解析
+:scripts: cjk
+:toc: left
+:toclevels: 3
+:toc-title: 目录
+:numbered:
+:sectnums:
+:sectnum-depth: 3
+:source-highlighter: coderay
+
+== 简介
+
+tokio::select! 是 Tokio 运行时中用于并发等待多个异步操作的核心宏，其核心逻辑是：当任意一个分支的 Future 首先完成时，立即执行对应分支的代码，并取消其他未完成的 Future。
+
+== 基础语法与执行逻辑
+
+[source,rust]
+----
+tokio::select! {
+    result_a = future_a => { /* 分支 A 逻辑 */ },
+    result_b = future_b => { /* 分支 B 逻辑 */ },
+    // ...
+}
+----
+
+* 所有分支的 Future 同时开始执行（在单线程内并发轮询）
+* 首个完成的 Future 触发对应分支，其他 Future 立即被取消（drop）
+* 未完成的 Future 不会继续执行，其内部状态可能丢失
+
+== 典型场景
+
+=== 超时控制
+
+[source,rust]
+----
+tokio::select! {
+    result = fetch_data() => { /* 处理结果 */ },
+    _ = tokio::time::sleep(Duration::from_secs(5)) => { /* 5 秒超时 */ }
+}
+----
+
+* 硬超时：直接取消未完成的 Future，可能引发资源泄漏（如未关闭的连接）
+* 软超时：需配合清理逻辑（如先发送取消信号再等待）
+
+=== 循环监听事件流
+
+[source,rust]
+----
+let mut rx = broadcast.subscribe();
+loop {
+    tokio::select! {
+        // 事件 1：接收新消息
+        msg = rx.recv() => { /* 处理消息 */ },
+        // 事件 2：定时心跳
+        _ = tokio::time::sleep(Duration::from_secs(30)) => { /* 发送心跳 */ }
+    }
+}
+----
+
+== 常见陷阱
+
+=== 循环中的状态管理
+
+* 无状态的代码，如果被其它future抢先后，再次循环将会重新再睡眠5秒
+
+[source,rust]
+----
+loop {
+tokio::select! {
+result_a = future_a => { /* 分支 A 逻辑 */ },
+result_b = future_b => { /* 分支 B 逻辑 */ },
+_ = tokio::time::sleep(Duration::from_secs(5)) => { /* 每次循环重置定时器 */ }
+}
+}
+----
+
+* 将 Future 绑定到循环外，如果被其它future抢先后，不重新开始，直接延续之前的计时
+
+[source,rust]
+----
+let mut interval = tokio::time::interval(Duration::from_secs(5));
+loop {
+tokio::select! {
+result_a = future_a => { /* 分支 A 逻辑 */ },
+result_b = future_b => { /* 分支 B 逻辑 */ },
+_ = interval.tick() => { /* 复用 interval 状态 */ }
+}
+}
+----
+
+=== 公平性问题与分支优先级
+
+* `select!` 默认随机检查分支
+* 如果要按代码顺序检查分支，可以设置启用优先级 `biased;`（适合明确主次逻辑）
+* 如果要按代码顺序检查分支，请注意可能导致后定义的分支长期饥饿（尤其在高频事件场景）
+
+=== 与 spawn_blocking 避免阻塞
+
+* 陷阱：若分支中包含阻塞操作（如 std::fs::read），会卡住整个 Tokio 线程
+* 修复：用 tokio::task::spawn_blocking 将阻塞操作移至专用线程池
+
+[source,rust]
+----
+tokio::select! {
+    _ = tokio::task::spawn_blocking(|| { /* 阻塞操作 */ }) => { /* ... */ },
+    _ = timeout => { /* ... */ }
+}
+----
+
+=== 硬超时与软超时
+
+TODO!
