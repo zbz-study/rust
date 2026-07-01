@@ -66,11 +66,11 @@ loop {
 [source,rust]
 ----
 loop {
-tokio::select! {
-result_a = future_a => { /* 分支 A 逻辑 */ },
-result_b = future_b => { /* 分支 B 逻辑 */ },
-_ = tokio::time::sleep(Duration::from_secs(5)) => { /* 每次循环重置定时器 */ }
-}
+    tokio::select! {
+        result_a = future_a => { /* 分支 A 逻辑 */ },
+        result_b = future_b => { /* 分支 B 逻辑 */ },
+        _ = tokio::time::sleep(Duration::from_secs(5)) => { /* 每次循环重置定时器 */ }
+    }
 }
 ----
 
@@ -80,11 +80,11 @@ _ = tokio::time::sleep(Duration::from_secs(5)) => { /* 每次循环重置定时�
 ----
 let mut interval = tokio::time::interval(Duration::from_secs(5));
 loop {
-tokio::select! {
-result_a = future_a => { /* 分支 A 逻辑 */ },
-result_b = future_b => { /* 分支 B 逻辑 */ },
-_ = interval.tick() => { /* 复用 interval 状态 */ }
-}
+    tokio::select! {
+        result_a = future_a => { /* 分支 A 逻辑 */ },
+        result_b = future_b => { /* 分支 B 逻辑 */ },
+        _ = interval.tick() => { /* 复用 interval 状态 */ }
+    }
 }
 ----
 
